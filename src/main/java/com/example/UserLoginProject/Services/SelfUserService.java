@@ -7,6 +7,11 @@ import com.example.UserLoginProject.Models.Token;
 import com.example.UserLoginProject.Models.User;
 import com.example.UserLoginProject.Repositories.TokenRepository;
 import com.example.UserLoginProject.Repositories.UserRepository;
+import org.springframework.context.ApplicationContext;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -20,14 +25,19 @@ public class SelfUserService implements UserServiceInterface {
     private TokenRepository tokenRepository;
     private BCryptPasswordEncoder bCryptPasswordEncoder;
     private JWTService jwtService;
+    private AuthenticationManager authenticationManager;
+    private final ApplicationContext applicationContext;
 
     //Dependency Injection
     public SelfUserService(UserRepository userRepository, TokenRepository tokenRepository
-            , BCryptPasswordEncoder bCryptPasswordEncoder, JWTService jwtService){
+            , BCryptPasswordEncoder bCryptPasswordEncoder, JWTService jwtService,
+                           AuthenticationManager authenticationManager, ApplicationContext applicationContext){
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.jwtService = jwtService;
+        this.authenticationManager = authenticationManager;
+        this.applicationContext = applicationContext;
     }
 
     @Override
@@ -42,6 +52,7 @@ public class SelfUserService implements UserServiceInterface {
         unsavedUser.setUserName(user.getUserName());
         unsavedUser.setActive(true);
         unsavedUser.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
+//        unsavedUser.setRole(user.getRole());
 
         userRepository.save(unsavedUser);
     }
@@ -57,32 +68,44 @@ public class SelfUserService implements UserServiceInterface {
         Token generatedToken = new Token();
 
         //Checking for password
-        if(bCryptPasswordEncoder.matches(password, encodedPassword)){
-            //User is valid so need to generate token
-            String value = jwtService.generateToken(userName);
-            Date expiryAt = jwtService.extractExpiration(value);
+            Authentication authentication = authenticationManager
+                    .authenticate(new UsernamePasswordAuthenticationToken(userName, password));
+            if(authentication.isAuthenticated()) {
+                //User is valid so need to generate token
+                String value = jwtService.generateToken(userName);
+                Date expiryAt = jwtService.extractExpiration(value);
+                generatedToken.setTokenValue(value);
+                generatedToken.setUser(optionalUser.get());
+                generatedToken.setExpiryAt(expiryAt);
+                generatedToken.setActive(true);
 
-            generatedToken.setTokenValue(value);
-            generatedToken.setUser(optionalUser.get());
-            generatedToken.setExpiryAt(expiryAt);
-            tokenRepository.save(generatedToken);
-        }
-        else
-            throw new PasswordMismatchException("Incorrect Password");
+                tokenRepository.save(generatedToken);
+            }
+            else
+                throw new PasswordMismatchException("Incorrect Password");
 
         return generatedToken;
     }
 
     @Override
-    public void logout(Token token){
-        String tokenValue = token.getTokenValue();
-        User user = token.getUser();
+    public void logout(String token) {
 
-        boolean isValid = jwtService.validateToken(tokenValue, user.getUserName());
+        String userName = jwtService.extractUsername(token);
+        Optional<User> user = userRepository.findByUserName(userName);
 
-        if(isValid){
-            token.setActive(false);
-            tokenRepository.save(token);
+        UserDetails userDetails = applicationContext
+                .getBean(CustomUserDetailsService.class)
+                .loadUserByUsername(userName);
+
+
+        boolean isVerified = jwtService.validateToken(token, userDetails);
+        if(isVerified){
+            Token changedToken = tokenRepository.findByTokenValue(token);
+            changedToken.setExpiryAt(new Date(System.currentTimeMillis()));
+            changedToken.setActive(false);
+            user.get().setActive(false);
+            userRepository.save(user.get());
+            tokenRepository.save(changedToken);
         }
     }
 }

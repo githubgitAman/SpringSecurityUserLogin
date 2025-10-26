@@ -5,6 +5,7 @@ import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.KeyGenerator;
@@ -18,22 +19,28 @@ import java.util.Map;
 
 @Service
 public class JWTService {
-    private final long expirationTime = 1000 * 60 * 60 * 24 * 7;
+
     @Value("${jwt.secret}")
     private String secretKey;
 
     public String generateToken(String userName){
 
         Map<String, Object> claims = new HashMap<>();
+
         return Jwts.builder()
                 .claims()
                 .add(claims)
                 .subject(userName)
                 .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + expirationTime))
+                //Expiration for 14 Days
+                .expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24 * 7 * 2))
                 .and()
                 .signWith(getKey())
                 .compact();
+    }
+    public Key getKey(){
+        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
+        return Keys.hmacShaKeyFor(keyBytes);
     }
     public Date extractExpiration(String token) {
         return Jwts.parser()                      // ✅ new-style parser
@@ -43,7 +50,7 @@ public class JWTService {
                 .getPayload()                     // get Claims payload
                 .getExpiration();                 // extract 'exp'
     }
-    public boolean validateToken(String token, String username) {
+    public boolean validateToken(String token, UserDetails userDetails) {
         try {
             Claims claims = Jwts.parser()
                     .verifyWith((SecretKey) getKey())
@@ -54,7 +61,7 @@ public class JWTService {
             String tokenUsername = claims.getSubject();
             Date expiration = claims.getExpiration();
 
-            return (tokenUsername.equals(username) && expiration.after(new Date()));
+            return (tokenUsername.equals(userDetails.getUsername()) && expiration.after(new Date()));
         } catch (ExpiredJwtException e) {
             System.out.println("Token expired");
             return false;
@@ -63,8 +70,12 @@ public class JWTService {
             return false;
         }
     }
-    public Key getKey(){
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(keyBytes);
+    public String extractUsername(String token) {
+        return Jwts.parser()
+                .setSigningKey(getKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody()
+                .getSubject(); // "sub" claim
     }
 }

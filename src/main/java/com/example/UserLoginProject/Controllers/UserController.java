@@ -7,10 +7,7 @@ import com.example.UserLoginProject.Services.UserServiceInterface;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @Slf4j
 @RestController
@@ -32,14 +29,15 @@ public class UserController {
         return ResponseEntity.ok("SIGNIN SUCCESSFULL");
     }
     @PostMapping("/login")
-    public ResponseEntity<LoginResponseDTO> login(@RequestBody LoginRequestDTO loginRequestDTO) {
+    public ResponseEntity<String> login(@RequestBody LoginRequestDTO loginRequestDTO) {
         Token generatedToken = userServiceInterface.login(loginRequestDTO.getUserName(), loginRequestDTO.getPassword());
-        LoginResponseDTO loginResponseDTO = new LoginResponseDTO();
-        loginResponseDTO.setGeneratedToken(generatedToken.getTokenValue());
+        String token = generatedToken.getTokenValue();
 
-        return ResponseEntity.ok(loginResponseDTO);
+        return ResponseEntity.ok(token);
     }
-    public ResponseEntity<String> logout(@RequestBody Token token){
+    @PostMapping("/logout")
+    public ResponseEntity<String> logout(@RequestHeader("Authorization") String authHeader) {
+        String token = authHeader.substring(7).trim();
         userServiceInterface.logout(token);
         return ResponseEntity.ok("LOGOUT SUCCESS");
     }
